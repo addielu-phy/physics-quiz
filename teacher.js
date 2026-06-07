@@ -19,6 +19,7 @@ function fmtDate(d) {
 }
 function tsToDate(r) { return r.ts && r.ts.toDate ? r.ts.toDate() : (r.clientTime ? new Date(r.clientTime) : null); }
 function fmtDur(s) { const m = Math.floor(s / 60); return m ? `${m}分${s % 60}秒` : `${s}秒`; }
+function modeLabel(m) { return m === "practice" ? "隨手練習" : m === "wrong" ? "錯題練習" : "全卷測驗"; }
 
 /* ---------- 啟動 ---------- */
 let DB = null;
@@ -234,7 +235,7 @@ function stuDetail(s) {
     return `<div class="att">
       <div class="badge">${a.score}</div>
       <div class="grow">
-        ${a.mode === "wrong" ? '<span class="chip">錯題練習</span>' : '<span class="chip">全卷</span>'}
+        <span class="chip">${modeLabel(a.mode)}</span>
         答對 ${a.correct}/${a.total}・用時 ${fmtDur(a.durationSec || 0)}
         <div class="muted small">${fmtDate(tsToDate(a))}</div>
         <div class="small" style="margin-top:4px">錯題：${wrongTxt}</div>
@@ -256,7 +257,7 @@ window.exportCSV = function () {
   ROWS.slice().sort((a, b) => (tsToDate(a) || 0) - (tsToDate(b) || 0)).forEach(r => {
     const row = [
       `"${(r.name || "").replace(/"/g, '""')}"`,
-      r.attemptNo || "", r.mode === "wrong" ? "錯題" : "全卷",
+      r.attemptNo || "", modeLabel(r.mode),
       r.score, r.correct, r.total, (r.wrongIds || []).length,
       r.durationSec || "", `"${fmtDate(tsToDate(r))}"`,
       `"${(r.wrongIds || []).join(" ")}"`

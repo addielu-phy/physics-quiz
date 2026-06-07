@@ -71,6 +71,7 @@ function fmtDur(sec) {
   const m = Math.floor(sec / 60), s = sec % 60;
   return m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`;
 }
+function modeLabel(m) { return m === "practice" ? "隨手練習" : m === "wrong" ? "錯題練習" : "全卷測驗"; }
 function qById(id) { return QUESTIONS.find(q => q.id === id); }
 function figuresHTML(q) {
   if (!q.img) return "";
@@ -161,7 +162,7 @@ function viewDashboard(name) {
       return `<div class="att">
         <div class="badge">${a.score}</div>
         <div class="grow">
-          <b>第 ${a.n} 次</b> ${a.mode === "wrong" ? '<span class="chip">錯題練習</span>' : '<span class="chip">全卷</span>'} ${delta}
+          <b>第 ${a.n} 次</b> <span class="chip">${modeLabel(a.mode)}</span> ${delta}
           <div class="muted small">答對 ${a.correct}/${a.total} 題・用時 ${fmtDur(a.durationSec)}・${fmtDate(a.date)}</div>
         </div>
         <button class="btn sm" onclick="viewResult('${encodeURIComponent(name)}',${i})">看解析</button>
@@ -194,12 +195,21 @@ function viewDashboard(name) {
     </div>
 
     <div class="card">
-      <h3>開始練習</h3>
-      <p class="muted small">${QUIZ_META.school}　${QUIZ_META.title}（${QUESTIONS.length} 題・滿分 ${QUIZ_META.total} 分）</p>
-      <div class="row">
-        <button class="btn primary" onclick="startQuiz('${encodeURIComponent(name)}','full')">📝 ${atts.length ? "再做一次全卷" : "開始作答（全卷 50 題）"}</button>
-        ${wrongCount ? `<button class="btn accent" onclick="startQuiz('${encodeURIComponent(name)}','wrong')">🎯 只練我的錯題（${wrongCount} 題）</button>` : ""}
+      <h3>選擇練習方式</h3>
+      <p class="muted small">${QUIZ_META.school}　${QUIZ_META.title}（${QUESTIONS.length} 題）</p>
+      <div class="modegrid">
+        <button class="modecard p" onclick="startPractice('${encodeURIComponent(name)}')">
+          <div class="mi">⚡</div>
+          <div class="mt">隨手練習</div>
+          <div class="md">一題一題作答，<b>選完馬上看對錯</b>，答錯立刻顯示詳解。題目會隨機洗牌，輕鬆學、隨時練。</div>
+        </button>
+        <button class="modecard" onclick="startQuiz('${encodeURIComponent(name)}','full')">
+          <div class="mi">📝</div>
+          <div class="mt">正式測驗</div>
+          <div class="md">整卷作答，最後一次<b>評分</b>並提供<b>單元診斷</b>與逐題詳解，可比較歷次進步。像在考試。</div>
+        </button>
       </div>
+      ${wrongCount ? `<button class="btn accent block" style="margin-top:12px" onclick="startQuiz('${encodeURIComponent(name)}','wrong')">🎯 只練我的錯題（${wrongCount} 題・正式評分）</button>` : ""}
     </div>
 
     ${weak}
@@ -437,7 +447,7 @@ function renderResult(name, index) {
   app.innerHTML = `
     <div class="spread">
       <div class="brand"><div class="logo">理</div>
-        <div><h1>成績與解析</h1><div class="sub">${name}・第 ${att.n} 次・${att.mode === "wrong" ? "錯題練習" : "全卷"}</div></div></div>
+        <div><h1>成績與解析</h1><div class="sub">${name}・第 ${att.n} 次・${modeLabel(att.mode)}</div></div></div>
       <button class="btn sm ghost" onclick="viewDashboard('${encodeURIComponent(name)}')">回首頁</button>
     </div>
 
@@ -494,6 +504,123 @@ window.startWrongFrom = function (enc, index) {
   session = { name, mode: "wrong", ids, idx: 0, answers: {}, start: Date.now() };
   renderQuestion();
 };
+
+/* ========================================================
+   5) 隨手練習（即時對答案 + 錯題即時詳解）
+   ======================================================== */
+window.startPractice = function (enc, ids) {
+  const name = decodeURIComponent(enc);
+  ids = (ids && ids.length) ? ids.slice() : QUESTIONS.map(q => q.id);
+  for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; } // 洗牌
+  session = { name, mode: "practice", ids, idx: 0, answers: {}, revealed: false, start: Date.now() };
+  renderPractice();
+};
+
+function renderPractice() {
+  const s = session, id = s.ids[s.idx], q = qById(id), total = s.ids.length;
+  const answeredCount = Object.keys(s.answers).length;
+  const correctCount = s.ids.filter(qid => s.answers[qid] === qById(qid).a).length;
+  const my = s.answers[id], revealed = s.revealed;
+
+  const opts = q.o.map((txt, i) => {
+    let cls = "opt";
+    if (revealed) { if (i === q.a) cls += " correct"; else if (i === my) cls += " wrong"; }
+    const mk = revealed ? (i === q.a ? "正解" : (i === my ? "你選的" : "")) : "";
+    const handler = revealed ? "" : `onclick="answerPractice(${i})"`;
+    return `<button class="${cls}" ${handler} ${revealed ? 'disabled style="cursor:default;opacity:1"' : ""}>
+      <span class="k">${LETTERS[i]}</span><span>${q.oi ? "選項 " + LETTERS[i] + "（見上方圖）" : txt}</span>${mk ? `<span class="mk">${mk}</span>` : ""}</button>`;
+  }).join("");
+
+  const feedback = revealed ? `
+    <div class="card tight" style="border-color:${my === q.a ? "var(--good)" : "var(--bad)"}">
+      <div class="qhead"><span class="chip ${my === q.a ? "good" : "bad"}">${my === q.a ? "✓ 答對了！" : "✗ 答錯了，正解是 " + LETTERS[q.a]}</span></div>
+      <div class="expl"><b>💡 詳解：</b>${q.e}</div>
+    </div>` : "";
+
+  const nextBtn = revealed
+    ? (s.idx < total - 1
+      ? `<button class="btn primary block" onclick="nextPractice()">下一題 →</button>`
+      : `<button class="btn accent block" onclick="finishPractice()">看練習結果 →</button>`)
+    : `<p class="muted small center" style="margin:6px 0">點一個答案，立刻看對錯與詳解</p>`;
+
+  app.innerHTML = `
+    <div class="spread">
+      <div><b>⚡ 隨手練習</b><span class="muted small">　${s.name}</span></div>
+      <button class="btn sm ghost" onclick="quitPractice()">離開</button>
+    </div>
+    <div class="card tight">
+      <div class="spread" style="margin-bottom:8px">
+        <span class="muted small">第 ${s.idx + 1} / ${total} 題</span>
+        <span class="muted small">答對 ${correctCount} / 已答 ${answeredCount}</span>
+      </div>
+      <div class="pbar"><span style="width:${(s.idx + (revealed ? 1 : 0)) / total * 100}%"></span></div>
+    </div>
+    <div class="card">
+      <div class="qhead"><span class="qno">${q.id}.</span><span class="chip unit">${q.u}</span></div>
+      ${q.oi ? figuresHTML(q) : ""}
+      <div class="stem">${q.s}</div>
+      ${q.oi ? "" : figuresHTML(q)}
+      <div class="opts">${opts}</div>
+    </div>
+    ${feedback}
+    <div class="qbar">${nextBtn}</div>
+  `;
+  window.scrollTo(0, 0);
+}
+window.answerPractice = function (i) { if (session.revealed) return; session.answers[session.ids[session.idx]] = i; session.revealed = true; renderPractice(); };
+window.nextPractice = function () { session.idx++; session.revealed = false; renderPractice(); };
+window.quitPractice = function () { if (confirm("離開隨手練習？這次練習不會被記錄。")) { const n = session.name; session = null; viewDashboard(n); } };
+window.finishPractice = function () {
+  const s = session; let correct = 0; const wrongIds = [];
+  s.ids.forEach(id => { if (s.answers[id] === qById(id).a) correct++; else wrongIds.push(id); });
+  wrongIds.sort((a, b) => a - b);
+  const db = load(); getProfile(s.name);
+  const list = (db.profiles[s.name] || (db.profiles[s.name] = { created: Date.now(), attempts: [] })).attempts;
+  const attempt = {
+    n: list.length + 1, mode: "practice", date: Date.now(),
+    ids: s.ids.slice(), answers: Object.assign({}, s.answers),
+    correct, total: s.ids.length, score: correct * QUIZ_META.perScore, wrongIds,
+    durationSec: Math.max(1, Math.round((Date.now() - s.start) / 1000))
+  };
+  list.push(attempt); save(db);
+  const name = s.name; session = null;
+  renderPracticeSummary(name, attempt);
+  cloudPush(attempt, name);
+};
+function renderPracticeSummary(name, att) {
+  const p = Math.round(att.correct / att.total * 100);
+  const wrong = att.wrongIds.map(id => {
+    const q = qById(id);
+    return `<div class="review-item ng">
+      <div class="qhead"><span class="qno">${q.id}.</span><span class="chip bad">✗ 當時答錯</span><span class="chip unit">${q.u}</span></div>
+      <div class="stem">${q.s}</div>${figuresHTML(q)}
+      <div class="opts"><div class="opt correct"><span class="k">${LETTERS[q.a]}</span><span>${q.oi ? "選項 " + LETTERS[q.a] : q.o[q.a]}</span><span class="mk">正解</span></div></div>
+      <div class="expl"><b>💡 詳解：</b>${q.e}</div></div>`;
+  }).join("") || `<p class="muted center">這次全部答對，太強了 🎉</p>`;
+
+  app.innerHTML = `
+    <div class="spread">
+      <div class="brand"><div class="logo">⚡</div><div><h1>隨手練習結果</h1><div class="sub">${name}・隨手練習</div></div></div>
+      <button class="btn sm ghost" onclick="viewDashboard('${encodeURIComponent(name)}')">回首頁</button>
+    </div>
+    <div class="card center">
+      <div class="muted small">第一次就答對</div>
+      <div class="score-big">${att.correct}<span style="font-size:1.2rem;color:var(--muted)"> / ${att.total}</span></div>
+      <div style="margin:4px 0 2px">正確率 ${p}%・用時 ${fmtDur(att.durationSec)}</div>
+      <div style="margin-top:10px"><span id="cloudStatus" class="chip" style="display:none"></span></div>
+    </div>
+    <div class="card"><h3>📝 錯題回顧與詳解（${att.wrongIds.length}）</h3>${wrong}</div>
+    <div class="card"><h3>接下來</h3>
+      <div class="row">
+        <button class="btn primary" onclick="startPractice('${encodeURIComponent(name)}')">🔁 再練一次（重新洗牌）</button>
+        ${att.wrongIds.length ? `<button class="btn accent" onclick="startPractice('${encodeURIComponent(name)}',[${att.wrongIds.join(",")}])">🎯 只練剛剛錯的（${att.wrongIds.length}）</button>` : ""}
+        <button class="btn ghost" onclick="viewDashboard('${encodeURIComponent(name)}')">回首頁</button>
+      </div>
+    </div>
+    <div class="foot">隨手練習也會記錄在你的練習紀錄中（標示為「隨手練習」）。</div>
+  `;
+  window.scrollTo(0, 0);
+}
 
 /* ---------- 啟動 ---------- */
 viewLogin();

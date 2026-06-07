@@ -43,6 +43,17 @@ h1,h2,h3{line-height:1.3;margin:.2em 0 .5em}
 .row.end{justify-content:flex-end}
 .spread{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 
+/* 模式選擇卡 */
+.modegrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}
+.modecard{text-align:left;border:1px solid var(--line);background:var(--card2);border-radius:14px;
+  padding:16px;cursor:pointer;transition:.15s;color:var(--txt);font:inherit}
+.modecard:hover{border-color:var(--accent);transform:translateY(-2px)}
+.modecard.p:hover{border-color:var(--accent2)}
+.modecard .mi{font-size:30px;line-height:1}
+.modecard .mt{font-weight:800;font-size:1.12rem;margin:8px 0 4px}
+.modecard .md{font-size:.85rem;color:var(--muted);line-height:1.55}
+@media(max-width:560px){.modegrid{grid-template-columns:1fr}}
+
 /* ---- 標題列 ---- */
 .brand{display:flex;align-items:center;gap:12px;margin-bottom:4px}
 .brand .logo{width:44px;height:44px;border-radius:12px;flex:0 0 auto;
