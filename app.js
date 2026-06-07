@@ -21,6 +21,45 @@ function getProfile(name) {
   return db.profiles[name];
 }
 
+/* ---------- 雲端同步（Firebase，未設定時自動略過） ---------- */
+function cloudOn() { return !!(window.CLOUD && CLOUD.enabled && typeof firebase !== "undefined" && CLOUD.config && CLOUD.config.projectId); }
+function cloudInit() { if (cloudOn() && !firebase.apps.length) firebase.initializeApp(CLOUD.config); }
+function cloudPayload(att, name) {
+  return {
+    name: name, mode: att.mode, attemptNo: att.n,
+    score: att.score, correct: att.correct, total: att.total,
+    ids: att.ids, wrongIds: att.wrongIds, durationSec: att.durationSec,
+    clientTime: att.date
+  };
+}
+async function cloudSendOne(p) {
+  cloudInit();
+  await firebase.firestore().collection("results").add(
+    Object.assign({}, p, { ts: firebase.firestore.FieldValue.serverTimestamp() }));
+}
+function queueAdd(p) { const db = load(); (db.pending = db.pending || []).push(p); save(db); }
+function setCloudStatus(txt, cls) {
+  const el = document.getElementById("cloudStatus");
+  if (!el) return;
+  el.style.display = "inline-block";
+  el.textContent = txt; el.className = "chip " + (cls || "");
+}
+async function cloudPush(att, name) {
+  if (!cloudOn()) return;
+  const p = cloudPayload(att, name);
+  setCloudStatus("雲端上傳中…", "");
+  try { await cloudSendOne(p); setCloudStatus("✓ 已上傳到老師端", "good"); }
+  catch (e) { console.warn("cloud save failed", e); queueAdd(p); setCloudStatus("離線，已暫存，稍後自動補傳", "bad"); }
+}
+async function flushPending() {
+  if (!cloudOn()) return;
+  const list = (load().pending || []).slice();
+  if (!list.length) return;
+  const remain = [];
+  for (const p of list) { try { await cloudSendOne(p); } catch (e) { remain.push(p); } }
+  const db = load(); db.pending = remain; save(db);
+}
+
 /* ---------- 工具 ---------- */
 const esc = s => String(s);
 function fmtDate(ts) {
@@ -308,6 +347,7 @@ window.submitQuiz = function () {
   const name = s.name, newIndex = list.length - 1;
   session = null;
   viewResult(encodeURIComponent(name), newIndex);
+  cloudPush(attempt, name); // 同步到老師端（未設定雲端時自動略過）
 };
 
 /* ========================================================
@@ -412,6 +452,7 @@ function renderResult(name, index) {
         <div class="b"><div class="n" style="font-size:1.1rem">${fmtDur(att.durationSec)}</div><div class="t">作答用時</div></div>
       </div>
       ${cmp}
+      <div style="margin-top:10px"><span id="cloudStatus" class="chip" style="display:none"></span></div>
     </div>
 
     <div class="card">
@@ -456,3 +497,4 @@ window.startWrongFrom = function (enc, index) {
 
 /* ---------- 啟動 ---------- */
 viewLogin();
+flushPending(); // 補傳上次離線時未上傳的成績
