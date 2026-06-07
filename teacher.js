@@ -212,7 +212,7 @@ function renderDash(user) {
 
     <div class="card">
       <div class="spread"><h3 style="margin:0">👩‍🎓 學生成績（點列可展開）</h3>
-        <select id="sortSel" onchange="setSort(this.value)" style="background:#0d1422;color:var(--txt);border:1px solid var(--line);border-radius:9px;padding:6px 8px">
+        <select id="sortSel" class="sortsel" onchange="setSort(this.value)">
           <option value="latest">最近作答</option>
           <option value="best">最佳分（高→低）</option>
           <option value="low">最佳分（低→高）</option>
