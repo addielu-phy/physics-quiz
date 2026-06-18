@@ -27,6 +27,8 @@ function cloudInit() { if (cloudOn() && !firebase.apps.length) firebase.initiali
 function cloudPayload(att, name) {
   return {
     name: name, mode: att.mode, attemptNo: att.n,
+    quizId: att.quizId || "113-2-3", quizLabel: att.quizLabel || "113 下第三次段考",
+    quizTitle: att.quizTitle || QUIZ_META.title,
     score: att.score, correct: att.correct, total: att.total,
     ids: att.ids, wrongIds: att.wrongIds, durationSec: att.durationSec,
     clientTime: att.date
@@ -139,6 +141,7 @@ window.startLogin = function () {
   viewDashboard(name);
 };
 window.enter = function (enc) { const name = decodeURIComponent(enc); const db = load(); db.last = name; save(db); viewDashboard(name); };
+window.changeQuiz = function (enc, quizId) { setActiveQuiz(quizId); viewDashboard(decodeURIComponent(enc)); };
 
 /* ========================================================
    2) 個人首頁 / 儀表板
@@ -146,7 +149,8 @@ window.enter = function (enc) { const name = decodeURIComponent(enc); const db =
 function viewDashboard(name) {
   const prof = getProfile(name);
   const atts = prof.attempts;
-  const last = atts[atts.length - 1];
+  const activeAtts = atts.filter(a => (a.quizId || "113-2-3") === ACTIVE_QUIZ_ID);
+  const last = activeAtts[activeAtts.length - 1];
 
   // 練習紀錄
   let history = `<p class="muted">還沒有紀錄，開始第一次練習吧！</p>`;
@@ -162,7 +166,7 @@ function viewDashboard(name) {
       return `<div class="att">
         <div class="badge">${a.score}</div>
         <div class="grow">
-          <b>第 ${a.n} 次</b> <span class="chip">${modeLabel(a.mode)}</span> ${delta}
+          <b>第 ${a.n} 次</b> <span class="chip">${a.quizLabel || QUIZZES[a.quizId || "113-2-3"]?.label || "113 下第三次段考"}</span> <span class="chip">${modeLabel(a.mode)}</span> ${delta}
           <div class="muted small">答對 ${a.correct}/${a.total} 題・用時 ${fmtDur(a.durationSec)}・${fmtDate(a.date)}</div>
         </div>
         <button class="btn sm" onclick="viewResult('${encodeURIComponent(name)}',${i})">看解析</button>
@@ -197,6 +201,11 @@ function viewDashboard(name) {
     <div class="card">
       <h3>選擇練習方式</h3>
       <p class="muted small">${QUIZ_META.school}　${QUIZ_META.title}（${QUESTIONS.length} 題）</p>
+      <label class="lbl" for="quizSel">選擇考古題年份</label>
+      <select id="quizSel" onchange="changeQuiz('${encodeURIComponent(name)}',this.value)">
+        ${Object.values(QUIZZES).map(q => `<option value="${q.id}" ${q.id === ACTIVE_QUIZ_ID ? "selected" : ""}>${q.label}</option>`).join("")}
+      </select>
+      <p class="muted small" style="margin-top:8px">目前題庫：${QUIZ_META.title}。隨手練習、正式測驗與老師端紀錄都會標示年份。</p>
       <div class="modegrid">
         <button class="modecard p" onclick="startPractice('${encodeURIComponent(name)}')">
           <div class="mi">⚡</div>
@@ -250,7 +259,7 @@ window.startQuiz = function (enc, mode) {
   } else {
     ids = QUESTIONS.map(q => q.id);
   }
-  session = { name, mode, ids, idx: 0, answers: {}, start: Date.now() };
+  session = { name, mode, quizId: ACTIVE_QUIZ_ID, ids, idx: 0, answers: {}, start: Date.now() };
   renderQuestion();
 };
 
@@ -343,6 +352,9 @@ window.submitQuiz = function () {
   const attempt = {
     n: list.length + 1,
     mode: s.mode,
+    quizId: s.quizId || ACTIVE_QUIZ_ID,
+    quizLabel: QUIZZES[s.quizId || ACTIVE_QUIZ_ID]?.label || activeQuizLabel(),
+    quizTitle: QUIZZES[s.quizId || ACTIVE_QUIZ_ID]?.meta.title || QUIZ_META.title,
     date: Date.now(),
     ids: s.ids.slice(),
     answers: Object.assign({}, s.answers),
@@ -380,6 +392,7 @@ window.viewResult = function (enc, index) {
   const prof = getProfile(name);
   const att = prof.attempts[index];
   if (!att) { viewDashboard(name); return; }
+  setActiveQuiz(att.quizId || "113-2-3");
   reviewFilter = "all";
   renderResult(name, index);
 };
@@ -447,7 +460,7 @@ function renderResult(name, index) {
   app.innerHTML = `
     <div class="spread">
       <div class="brand"><div class="logo">理</div>
-        <div><h1>成績與解析</h1><div class="sub">${name}・第 ${att.n} 次・${modeLabel(att.mode)}</div></div></div>
+        <div><h1>成績與解析</h1><div class="sub">${name}・${att.quizLabel || activeQuizLabel()}・第 ${att.n} 次・${modeLabel(att.mode)}</div></div></div>
       <button class="btn sm ghost" onclick="viewDashboard('${encodeURIComponent(name)}')">回首頁</button>
     </div>
 
@@ -499,9 +512,10 @@ window.setFilter = function (enc, index, f) { reviewFilter = f; renderResult(dec
 window.startWrongFrom = function (enc, index) {
   const name = decodeURIComponent(enc);
   const att = getProfile(name).attempts[index];
+  setActiveQuiz(att.quizId || "113-2-3");
   const ids = att.wrongIds.slice();
   if (!ids.length) { alert("沒有錯題！"); return; }
-  session = { name, mode: "wrong", ids, idx: 0, answers: {}, start: Date.now() };
+  session = { name, mode: "wrong", quizId: ACTIVE_QUIZ_ID, ids, idx: 0, answers: {}, start: Date.now() };
   renderQuestion();
 };
 
@@ -512,7 +526,7 @@ window.startPractice = function (enc, ids) {
   const name = decodeURIComponent(enc);
   ids = (ids && ids.length) ? ids.slice() : QUESTIONS.map(q => q.id);
   for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; } // 洗牌
-  session = { name, mode: "practice", ids, idx: 0, answers: {}, revealed: false, start: Date.now() };
+  session = { name, mode: "practice", quizId: ACTIVE_QUIZ_ID, ids, idx: 0, answers: {}, revealed: false, start: Date.now() };
   renderPractice();
 };
 
@@ -545,7 +559,7 @@ function renderPractice() {
 
   app.innerHTML = `
     <div class="spread">
-      <div><b>⚡ 隨手練習</b><span class="muted small">　${s.name}</span></div>
+      <div><b>⚡ 隨手練習</b><span class="muted small">　${s.name}・${activeQuizLabel()}</span></div>
       <button class="btn sm ghost" onclick="quitPractice()">離開</button>
     </div>
     <div class="card tight">
@@ -578,7 +592,11 @@ function savePracticeAttempt(s, answeredIds) {
   const list = (db.profiles[s.name] || (db.profiles[s.name] = { created: Date.now(), attempts: [] })).attempts;
   const total = Math.max(1, answeredIds.length);
   const attempt = {
-    n: list.length + 1, mode: "practice", date: Date.now(),
+    n: list.length + 1, mode: "practice",
+    quizId: s.quizId || ACTIVE_QUIZ_ID,
+    quizLabel: QUIZZES[s.quizId || ACTIVE_QUIZ_ID]?.label || activeQuizLabel(),
+    quizTitle: QUIZZES[s.quizId || ACTIVE_QUIZ_ID]?.meta.title || QUIZ_META.title,
+    date: Date.now(),
     ids: answeredIds.slice(), answers: Object.assign({}, s.answers),
     correct, total, score: Math.round(correct / total * 100), wrongIds,
     durationSec: Math.max(1, Math.round((Date.now() - s.start) / 1000)),
@@ -622,7 +640,7 @@ function renderPracticeSummary(name, att) {
 
   app.innerHTML = `
     <div class="spread">
-      <div class="brand"><div class="logo">⚡</div><div><h1>隨手練習結果</h1><div class="sub">${name}・隨手練習${att.partial ? "・中途離開已保存" : ""}</div></div></div>
+      <div class="brand"><div class="logo">⚡</div><div><h1>隨手練習結果</h1><div class="sub">${name}・${att.quizLabel || activeQuizLabel()}・隨手練習${att.partial ? "・中途離開已保存" : ""}</div></div></div>
       <button class="btn sm ghost" onclick="viewDashboard('${encodeURIComponent(name)}')">回首頁</button>
     </div>
     <div class="card center">

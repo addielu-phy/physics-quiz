@@ -121,12 +121,20 @@ function computeStats(rows) {
     return { u, qn: qs.length, wrong, totalAns, rate: totalAns ? wrong / totalAns : 0 };
   });
   const scores = full.map(a => a.score);
+  const quizCounts = {};
+  rows.forEach(r => {
+    const k = r.quizLabel || (r.quizId === "112-2-3" ? "112 下第三次段考" : "113 下第三次段考");
+    if (!quizCounts[k]) quizCounts[k] = { all: 0, full: 0, practice: 0 };
+    quizCounts[k].all++;
+    if (r.mode === "full") quizCounts[k].full++;
+    if (r.mode === "practice") quizCounts[k].practice++;
+  });
   return {
     students, full, fullN: full.length, practiceN: practice.length, assessableN: assessable.length,
     avg: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
     max: scores.length ? Math.max(...scores) : null,
     min: scores.length ? Math.min(...scores) : null,
-    qStats, uStats
+    qStats, uStats, quizCounts
   };
 }
 function rateColor(r) { return r >= 0.4 ? "var(--bad)" : r >= 0.2 ? "var(--warn)" : "var(--good)"; }
@@ -156,6 +164,9 @@ function renderDash(user) {
       <td class="r" style="color:${rateColor(u.rate)};font-weight:700">${Math.round(u.rate * 100)}%</td></tr>`).join("");
 
   // 學生表
+  const quizSummary = Object.entries(st.quizCounts || {}).map(([label, c]) =>
+    `<span class="chip">${label}：${c.all} 次（測驗 ${c.full}／隨手 ${c.practice}）</span>`).join(" ") || `<span class="muted small">尚無試卷紀錄</span>`;
+
   let studs = Object.values(st.students);
   if (studentSort === "name") studs.sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
   else if (studentSort === "best") studs.sort((a, b) => (b.bestFull ?? -1) - (a.bestFull ?? -1));
@@ -202,6 +213,7 @@ function renderDash(user) {
         <div class="b"><div class="n">${st.max ?? "—"}</div><div class="t">最高分</div></div>
         <div class="b"><div class="n">${st.min ?? "—"}</div><div class="t">最低分</div></div>
       </div>
+      <div style="margin-top:12px"><b>各試卷紀錄：</b> ${quizSummary}</div>
       <div style="margin-top:12px"><button class="btn sm accent" onclick="exportCSV()">⬇️ 匯出 CSV（Excel）</button></div>
     </div>
 
@@ -247,6 +259,7 @@ function stuDetail(s) {
     return `<div class="att">
       <div class="badge">${a.score}</div>
       <div class="grow">
+        <span class="chip">${a.quizLabel || (a.quizId === "112-2-3" ? "112 下第三次段考" : "113 下第三次段考")}</span>
         <span class="chip">${modeLabel(a.mode)}</span>
         答對 ${a.correct}/${a.total}・用時 ${fmtDur(a.durationSec || 0)}
         <div class="muted small">${fmtDate(tsToDate(a))}</div>
@@ -264,11 +277,13 @@ window.setSort = function (v) { studentSort = v; renderDash(firebase.auth().curr
 
 /* ---------- CSV 匯出 ---------- */
 window.exportCSV = function () {
-  const head = ["姓名", "第幾次", "模式", "分數", "答對", "總題", "錯題數", "用時(秒)", "作答時間", "錯題題號"];
+  const head = ["姓名", "試卷", "試卷ID", "第幾次", "模式", "分數", "答對", "總題", "錯題數", "用時(秒)", "作答時間", "錯題題號"];
   const lines = [head.join(",")];
   ROWS.slice().sort((a, b) => (tsToDate(a) || 0) - (tsToDate(b) || 0)).forEach(r => {
     const row = [
       `"${(r.name || "").replace(/"/g, '""')}"`,
+      `"${(r.quizLabel || (r.quizId === "112-2-3" ? "112 下第三次段考" : "113 下第三次段考")).replace(/"/g, '""')}"`,
+      r.quizId || "113-2-3",
       r.attemptNo || "", modeLabel(r.mode),
       r.score, r.correct, r.total, (r.wrongIds || []).length,
       r.durationSec || "", `"${fmtDate(tsToDate(r))}"`,
