@@ -569,20 +569,42 @@ function renderPractice() {
 }
 window.answerPractice = function (i) { if (session.revealed) return; session.answers[session.ids[session.idx]] = i; session.revealed = true; renderPractice(); };
 window.nextPractice = function () { session.idx++; session.revealed = false; renderPractice(); };
-window.quitPractice = function () { if (confirm("離開隨手練習？這次練習不會被記錄。")) { const n = session.name; session = null; viewDashboard(n); } };
-window.finishPractice = function () {
-  const s = session; let correct = 0; const wrongIds = [];
-  s.ids.forEach(id => { if (s.answers[id] === qById(id).a) correct++; else wrongIds.push(id); });
+function savePracticeAttempt(s, answeredIds) {
+  answeredIds = answeredIds || s.ids.filter(id => s.answers[id] !== undefined);
+  let correct = 0; const wrongIds = [];
+  answeredIds.forEach(id => { if (s.answers[id] === qById(id).a) correct++; else wrongIds.push(id); });
   wrongIds.sort((a, b) => a - b);
   const db = load(); getProfile(s.name);
   const list = (db.profiles[s.name] || (db.profiles[s.name] = { created: Date.now(), attempts: [] })).attempts;
+  const total = Math.max(1, answeredIds.length);
   const attempt = {
     n: list.length + 1, mode: "practice", date: Date.now(),
-    ids: s.ids.slice(), answers: Object.assign({}, s.answers),
-    correct, total: s.ids.length, score: correct * QUIZ_META.perScore, wrongIds,
-    durationSec: Math.max(1, Math.round((Date.now() - s.start) / 1000))
+    ids: answeredIds.slice(), answers: Object.assign({}, s.answers),
+    correct, total, score: Math.round(correct / total * 100), wrongIds,
+    durationSec: Math.max(1, Math.round((Date.now() - s.start) / 1000)),
+    partial: answeredIds.length < s.ids.length
   };
   list.push(attempt); save(db);
+  return attempt;
+}
+window.quitPractice = function () {
+  const s = session;
+  const answeredIds = s.ids.filter(id => s.answers[id] !== undefined);
+  if (!answeredIds.length) {
+    if (confirm("離開隨手練習？你還沒有作答，因此不會新增紀錄。")) { const n = s.name; session = null; viewDashboard(n); }
+    return;
+  }
+  if (confirm(`離開隨手練習？已答的 ${answeredIds.length} 題會儲存為一次練習紀錄，並上傳到老師端。`)) {
+    const name = s.name;
+    const attempt = savePracticeAttempt(s, answeredIds);
+    session = null;
+    renderPracticeSummary(name, attempt);
+    cloudPush(attempt, name);
+  }
+};
+window.finishPractice = function () {
+  const s = session;
+  const attempt = savePracticeAttempt(s, s.ids.slice());
   const name = s.name; session = null;
   renderPracticeSummary(name, attempt);
   cloudPush(attempt, name);
@@ -600,11 +622,11 @@ function renderPracticeSummary(name, att) {
 
   app.innerHTML = `
     <div class="spread">
-      <div class="brand"><div class="logo">⚡</div><div><h1>隨手練習結果</h1><div class="sub">${name}・隨手練習</div></div></div>
+      <div class="brand"><div class="logo">⚡</div><div><h1>隨手練習結果</h1><div class="sub">${name}・隨手練習${att.partial ? "・中途離開已保存" : ""}</div></div></div>
       <button class="btn sm ghost" onclick="viewDashboard('${encodeURIComponent(name)}')">回首頁</button>
     </div>
     <div class="card center">
-      <div class="muted small">第一次就答對</div>
+      <div class="muted small">本次已答題目</div>
       <div class="score-big">${att.correct}<span style="font-size:1.2rem;color:var(--muted)"> / ${att.total}</span></div>
       <div style="margin:4px 0 2px">正確率 ${p}%・用時 ${fmtDur(att.durationSec)}</div>
       <div style="margin-top:10px"><span id="cloudStatus" class="chip" style="display:none"></span></div>
